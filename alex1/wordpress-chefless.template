@@ -1,0 +1,37 @@
+
+# WORK IN PROGRESS
+
+# idea is to provide enough simple predicates inside 'server' 
+# to specify files and packages to install, and scripts to run,
+# so that tools like chef and puppet aren't needed for simple cases
+
+# but to keep things simple
+
+name: wordpress-chefless
+components:
+  wordpress-app-tier:
+    type: tier
+    nodespec:
+      type: server
+      packages: 
+        rpm: [ php, php-mysql, php-gd ]
+#        deb: .... (semantics of 'server' would say to pick _either_ of these)
+      files:
+      - source: "wp-config.php.template"
+        target: "/var/www/html/wp-config.php",
+        # this is assuming template above uses ${DB_HOST} ... could allow alt strategies e.g. 
+        # templateStrategy: [ "<%", "%>" ]
+        variables:
+          DB_HOST: { reference: mysql, attribute: hostname }
+          DB_USERNAME: wp_admin
+          DB_PASSWORD: { parameter: db_password }
+      execute:  # commands executed in order
+      - wait: { reference: mysql, attribute: serviceUp }
+      - bash: /var/www/html/wp-config.php
+      requires:
+        loadbalancer:
+  mysql:
+    type: server
+    packages: { rpm: [ mysql ], deb: [ mysql ] }
+parameters:
+  db_password: { type: string }

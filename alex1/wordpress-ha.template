@@ -1,0 +1,70 @@
+name: wordpress-ha
+metadata:
+  description:
+    Installs a scalable WordPress using an associated database template
+    with HA policies installed
+    (and hard-codes parameters for convenience)
+  providerId: com.example.templates 
+  providerVersion: 3.1.0
+  schemaVersion: 0.1.0
+components:
+  wordpress-app-tier:
+    type: tier
+    initialSize: 2
+    nodespec:
+      type: server
+      chef:
+        recipe: "wordpress.zip"
+        attributes:
+          node_wp_db_username: admin
+          node_wp_db_password: pa55w0rd
+          node_wp_db_database_host:
+            # implicit wait condition, wait for this hostname to be published
+            { type: reference, component: mysql, attribute: hostname }
+      vmspec:
+        minram: 4096m
+        os: centos
+      requires:
+        loadbalancer:
+          fulfillment: lb
+        failureAlarm:
+          type: "AWS::CloudWatch::Alarm"
+          MetricName: ServiceFailure
+          Namespace: system/linux
+          Statistic: SampleCount
+          Period: '300'
+          EvaluationPeriods: '1'
+          Threshold: '2'
+          ComparisonOperator: GreaterThanThreshold
+          AlarmActions:
+          - operation: restart
+        restarter:
+          type: "OS::Heat::HARestarter"
+          operation: restart
+          # don't allow more than 2 restarts in a 5m window
+          maxRestartsInWindowCount: 2
+          maxRestartsInWindowPeriod: 5m
+          # destroy if that limit is exceeded
+          # (then rely on autoscaler to create a new one)
+          maxRestartsExceededActions:
+          - operation: destroy
+      requires:
+        # these requirements, defining latency computation and scaling policy
+        # are set on the _tier_
+        latencyDetector:
+          type: "OS::Heat::Web::HttpLatencyDetector"
+          url: { type: function, function: formatString, arguments: [
+            "http://%s/wordpress",
+            { type: reference, component: lb, attribute: hostname } ] } 
+          period: 5s
+          publish: latency
+        elasticityPolicy:
+          type: "OS::Heat::Policies::AutoScalerPolicy"
+          metric: latency
+          metricRange: [ 50, 200 ]
+          sizeRange: [ 2, 10 ]
+    db:
+      type: server
+      vmspec: { minram: 4096m }
+      packages: [ { type: rpm, rpms: [ mysql ] }, { type: deb, debs: [ mysql ] } ]
+    lb:  # nothing - constraints implicit from tier's loadbalancer requirement

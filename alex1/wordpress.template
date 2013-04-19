@@ -1,0 +1,76 @@
+name: wordpress
+metadata:
+  description:
+    Installs a scalable WordPress using an associated database template
+  providerId: com.example.templates 
+  providerVersion: 3.1.0
+  schemaVersion: 0.1.0
+components:
+  wordpress-app-tier:
+    type: tier
+    nodespec:
+      type: server
+      chef:
+        recipe: "wordpress.zip"
+        attributes:
+          node_wp_db_username: { type: reference, parameter: db_username }
+          node_wp_db_password: { type: reference, parameter: db_password }
+          node_wp_db_database_host:
+            # implicit wait condition, wait for this hostname to be published
+            { type: reference, component: mysql, attribute: hostname }
+      vmspec:
+        minram: 4096m
+        os: { parameter: os_family }
+      requires:
+        loadbalancer:
+          fulfillment: lb
+  db:
+    type: server
+    vmspec: { minram: 4096m }
+    packages: [ { type: rpm, rpms: [ mysql ] }, { type: deb, debs: [ mysql ] } ]
+  lb:  # nothing - constraints implicit from tier's loadbalancer requirement
+inputs:
+  db_username:
+    type: string
+    label: "DB Username"
+    default: admin
+    constraints: 
+    - type: length 
+      min: 1
+      max: 16
+    - type: regex
+      regex: "[a-zA-Z][a-zA-Z0-9]*"
+      description: must begin with a letter and contain only alphanumeric characters
+    display-hints:
+      order: 1
+  db_password:
+    type: string
+    label: "DB Password"
+    noEcho: true
+    constraints: 
+    - type: length 
+      min: 1
+      max: 41
+    display-hints:
+      order: 2
+  os_family:
+    type: string
+    label: "Operating System"
+    default: ubuntu
+    constraints: 
+    - type: selection 
+      values:
+      - { label: Ubuntu, value: ubuntu }
+      - { label: Debian, value: debian }
+      - { label: Red Hat, value: redhat }
+      - { label: CentOS, value: centos }
+    displayHints:
+      order: 3
+outputs:
+  websiteUrl: 
+    type: function
+    function: formatString
+    arguments:
+    - http://%s/wordpress
+    - { type: reference, component: lb, attribute: hostname }
+    description: URL of WordPress installation (load-balancer)
